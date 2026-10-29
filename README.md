@@ -12,7 +12,7 @@ python app.py
 
 ## Features
 
-- CustomTkinter dashboard and Matplotlib price chart
+- CustomTkinter dashboard and interactive Matplotlib price chart\n- Hover over chart points to inspect day/price; click a point to select it\n- Mouse-wheel zoom plus Matplotlib toolbar controls for pan, zoom, and reset
 - Manual price entry or CSV import (prefers a `Close` column)
 - Best historical buy/sell days, profit and percentage return
 - Recursive divide-and-conquer trace
