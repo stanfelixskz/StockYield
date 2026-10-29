@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from algorithm import max_profit
 
@@ -149,27 +149,33 @@ class App(ctk.CTk):
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart)
         self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 2))
-        # Interactive chart controls: pan, zoom, reset, hover inspection and click-to-select.
-        toolbar_frame = ctk.CTkFrame(chart, fg_color=PANEL, corner_radius=0)
-        toolbar_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 2))
-        self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame, pack_toolbar=False)
-        self.toolbar.configure(background=PANEL, borderwidth=0, highlightthickness=0)
-        self.toolbar.update()
-        self.toolbar.pack(side="left", fill="x")
-        # Matplotlib's default Tk toolbar uses a light background; match it to the dark dashboard.
-        for widget in self.toolbar.winfo_children():
-            try:
-                widget.configure(
-                    background=PANEL,
-                    activebackground=BORDER,
-                    foreground=TEXT,
-                    activeforeground=TEXT,
-                    relief="flat",
-                    borderwidth=0,
-                    highlightthickness=0,
-                )
-            except tk.TclError:
-                pass
+        # Custom dashboard controls replace Matplotlib's default toolbar.
+        controls = ctk.CTkFrame(chart, fg_color="transparent")
+        controls.grid(row=2, column=0, sticky="ew", padx=12, pady=(3, 6))
+        self.pan_enabled = False
+        self._pan_start = None
+        self._default_xlim = None
+        self._default_ylim = None
+        ctk.CTkLabel(controls, text="CHART CONTROLS", text_color=MUTED,
+                     font=ctk.CTkFont(size=10, weight="bold")).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(controls, text="− Zoom out", width=90, height=30,
+                      fg_color="#26364d", hover_color="#344a66",
+                      command=lambda: self._zoom_chart(1.25)).pack(side="left", padx=3)
+        ctk.CTkButton(controls, text="+ Zoom in", width=85, height=30,
+                      fg_color="#26364d", hover_color="#344a66",
+                      command=lambda: self._zoom_chart(0.8)).pack(side="left", padx=3)
+        self.pan_button = ctk.CTkButton(
+            controls, text="Pan: off", width=80, height=30,
+            fg_color="#26364d", hover_color="#344a66",
+            command=self._toggle_pan,
+        )
+        self.pan_button.pack(side="left", padx=3)
+        ctk.CTkButton(controls, text="Reset view", width=85, height=30,
+                      fg_color="#26364d", hover_color="#344a66",
+                      command=self._reset_chart_view).pack(side="left", padx=3)
+        ctk.CTkButton(controls, text="Save chart", width=85, height=30,
+                      fg_color="#26364d", hover_color="#344a66",
+                      command=self._save_chart).pack(side="left", padx=3)
         self.chart_hint = ctk.CTkLabel(
             chart,
             text="Hover over a point for details • Click a point to inspect • Scroll to zoom",
@@ -183,6 +189,9 @@ class App(ctk.CTk):
         self.canvas.mpl_connect("motion_notify_event", self._on_chart_hover)
         self.canvas.mpl_connect("button_press_event", self._on_chart_click)
         self.canvas.mpl_connect("scroll_event", self._on_chart_scroll)
+        self.canvas.mpl_connect("button_press_event", self._on_pan_press)
+        self.canvas.mpl_connect("button_release_event", self._on_pan_release)
+        self.canvas.mpl_connect("motion_notify_event", self._on_pan_motion)
         trace_panel = ctk.CTkFrame(self.main, fg_color=PANEL, corner_radius=14, border_width=1, border_color=BORDER)
         trace_panel.grid(row=4, column=0, sticky="nsew")
         trace_panel.grid_columnconfigure(0, weight=1); trace_panel.grid_rowconfigure(1, weight=1)
@@ -214,6 +223,71 @@ class App(ctk.CTk):
         self.ax.legend(facecolor="#172338", edgecolor=BORDER, labelcolor=TEXT, fontsize=8)
         self.fig.tight_layout()
         self.canvas.draw_idle()
+        self._default_xlim = self.ax.get_xlim()
+        self._default_ylim = self.ax.get_ylim()
+
+    def _zoom_chart(self, scale):
+        x0, x1 = self.ax.get_xlim()
+        y0, y1 = self.ax.get_ylim()
+        xc, yc = (x0 + x1) / 2, (y0 + y1) / 2
+        self.ax.set_xlim(xc - (xc - x0) * scale, xc + (x1 - xc) * scale)
+        self.ax.set_ylim(yc - (yc - y0) * scale, yc + (y1 - yc) * scale)
+        self.canvas.draw_idle()
+
+    def _reset_chart_view(self):
+        if self._default_xlim is not None and self._default_ylim is not None:
+            self.ax.set_xlim(self._default_xlim)
+            self.ax.set_ylim(self._default_ylim)
+            self.canvas.draw_idle()
+        self.chart_hint.configure(text="Chart view reset • Hover for details • Click a point to inspect")
+
+    def _toggle_pan(self):
+        self.pan_enabled = not self.pan_enabled
+        self.pan_button.configure(
+            text="Pan: on" if self.pan_enabled else "Pan: off",
+            fg_color="#16865f" if self.pan_enabled else "#26364d",
+            hover_color="#126b4c" if self.pan_enabled else "#344a66",
+        )
+        self._pan_start = None
+        self.canvas.get_tk_widget().configure(cursor="fleur" if self.pan_enabled else "")
+        self.chart_hint.configure(
+            text="Pan mode: drag the chart to move around" if self.pan_enabled
+            else "Hover for details • Click a point to inspect • Scroll or use zoom buttons"
+        )
+
+    def _on_pan_press(self, event):
+        if not self.pan_enabled or event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+            return
+        self._pan_start = (event.xdata, event.ydata, self.ax.get_xlim(), self.ax.get_ylim())
+
+    def _on_pan_motion(self, event):
+        if not self.pan_enabled or self._pan_start is None or event.inaxes != self.ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        start_x, start_y, xlim, ylim = self._pan_start
+        dx, dy = event.xdata - start_x, event.ydata - start_y
+        self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
+        self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
+        self.canvas.draw_idle()
+
+    def _on_pan_release(self, event):
+        self._pan_start = None
+
+    def _save_chart(self):
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Save chart image", defaultextension=".png",
+            initialfile="stockyield_chart.png",
+            filetypes=[("PNG image", "*.png"), ("PDF document", "*.pdf"), ("SVG image", "*.svg")],
+        )
+        if not path:
+            return
+        try:
+            self.fig.savefig(path, facecolor=self.fig.get_facecolor(), bbox_inches="tight")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Save chart failed", str(exc), parent=self)
+            return
+        messagebox.showinfo("Chart saved", f"Chart saved to:\n{path}", parent=self)
 
     def _nearest_day(self, event):
         if event.inaxes != self.ax or event.xdata is None or not self.prices:
@@ -246,13 +320,15 @@ class App(ctk.CTk):
             )
             self._hover_line = self.ax.axvline(day, color=MUTED, linewidth=0.8, linestyle="--", alpha=0.7)
         self._hover_annotation.xy = (day, price)
-        self._hover_annotation.set_text(f"Day {day}\\nPrice: {price:,.2f}")
+        self._hover_annotation.set_text(f"Day {day}\nPrice: {price:,.2f}")
         self._hover_annotation.set_visible(True)
         self._hover_line.set_xdata([day, day])
         self._hover_line.set_visible(True)
         self.canvas.draw_idle()
 
     def _on_chart_click(self, event):
+        if self.pan_enabled:
+            return
         day = self._nearest_day(event)
         if day is None:
             return
