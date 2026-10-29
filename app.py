@@ -108,8 +108,8 @@ class App(ctk.CTk):
         self.main.grid(row=0, column=1, sticky="nsew", padx=25, pady=22)
         self.main.grid_columnconfigure(0, weight=1)
         # Give the price chart most of the available vertical space.
-        self.main.grid_rowconfigure(3, weight=5)
-        self.main.grid_rowconfigure(4, weight=1)
+        self.main.grid_rowconfigure(3, weight=6, minsize=260)
+        self.main.grid_rowconfigure(4, weight=1, minsize=100)
         head = ctk.CTkFrame(self.main, fg_color="transparent")
         head.grid(row=0, column=0, sticky="ew", pady=(0, 18))
         head.grid_columnconfigure(0, weight=1)
@@ -145,9 +145,12 @@ class App(ctk.CTk):
         ctk.CTkButton(buttons, text="Export report", command=self.export, fg_color="#26364d").pack(side="left", padx=4)
         chart = ctk.CTkFrame(self.main, fg_color=PANEL, corner_radius=14, border_width=1, border_color=BORDER)
         chart.grid(row=3, column=0, sticky="nsew", pady=(0, 15))
-        chart.grid_columnconfigure(0, weight=1); chart.grid_rowconfigure(1, weight=1)
+        chart.grid_columnconfigure(0, weight=1)
+        chart.grid_rowconfigure(1, weight=1, minsize=220)
         ctk.CTkLabel(chart, text="PRICE MOVEMENT", text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=12)
-        self.fig = Figure(figsize=(10, 5.2), dpi=100, facecolor=PANEL)
+        # Keep the requested canvas height modest so the chart remains visible
+        # inside the dashboard instead of pushing the panel below the window.
+        self.fig = Figure(figsize=(8, 3.4), dpi=100, facecolor=PANEL)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart)
         self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 2))
