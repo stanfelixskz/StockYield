@@ -152,12 +152,18 @@ class App(ctk.CTk):
         self.price_input = ctk.CTkTextbox(inp, height=58, fg_color="#0b1322", border_color=BORDER, border_width=1, font=ctk.CTkFont(family="Consolas", size=12))
         self.price_input.grid(row=1, column=0, sticky="ew", padx=15, pady=4)
         buttons = ctk.CTkFrame(inp, fg_color="transparent")
-        buttons.grid(row=2, column=0, sticky="w", padx=12, pady=(5, 12))
-        ctk.CTkButton(buttons, text="Analyze prices", command=self.analyze, fg_color="#16865f", hover_color="#126b4c").pack(side="left", padx=4)
-        ctk.CTkButton(buttons, text="Load CSV", command=self.load_csv).pack(side="left", padx=4)
-        ctk.CTkButton(buttons, text="Use sample", command=self.use_sample, fg_color="#26364d").pack(side="left", padx=4)
-        ctk.CTkButton(buttons, text="Clear", command=self.clear, fg_color="#26364d").pack(side="left", padx=4)
-        ctk.CTkButton(buttons, text="Export report", command=self.export, fg_color="#26364d").pack(side="left", padx=4)
+        buttons.grid(row=2, column=0, sticky="ew", padx=12, pady=(5, 12))
+        self.input_buttons = [
+            ctk.CTkButton(buttons, text="Analyze prices", command=self.analyze, fg_color="#16865f", hover_color="#126b4c"),
+            ctk.CTkButton(buttons, text="Load CSV", command=self.load_csv),
+            ctk.CTkButton(buttons, text="Use sample", command=self.use_sample, fg_color="#26364d"),
+            ctk.CTkButton(buttons, text="Clear", command=self.clear, fg_color="#26364d"),
+            ctk.CTkButton(buttons, text="Export report", command=self.export, fg_color="#26364d"),
+        ]
+        self.input_buttons_frame = buttons
+        self._input_button_columns = None
+        self._arrange_input_buttons(5)
+        buttons.bind("<Configure>", self._on_input_buttons_resize, add="+")
         chart = ctk.CTkFrame(self.main, fg_color=PANEL, corner_radius=14, border_width=1, border_color=BORDER)
         chart.grid(row=3, column=0, sticky="nsew", pady=(0, 15))
         chart.grid_columnconfigure(0, weight=1)
@@ -187,30 +193,37 @@ class App(ctk.CTk):
         # Custom dashboard controls replace Matplotlib's default toolbar.
         controls = ctk.CTkFrame(chart, fg_color="transparent")
         controls.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(3, 6))
+        self.chart_controls_frame = controls
         self.pan_enabled = False
         self._pan_start = None
         self._default_xlim = None
         self._default_ylim = None
         ctk.CTkLabel(controls, text="CHART CONTROLS", text_color=MUTED,
-                     font=ctk.CTkFont(size=10, weight="bold")).pack(side="left", padx=(0, 10))
-        ctk.CTkButton(controls, text="− Zoom out", width=90, height=30,
-                      fg_color="#26364d", hover_color="#344a66",
-                      command=lambda: self._zoom_chart(1.25)).pack(side="left", padx=3)
-        ctk.CTkButton(controls, text="+ Zoom in", width=85, height=30,
-                      fg_color="#26364d", hover_color="#344a66",
-                      command=lambda: self._zoom_chart(0.8)).pack(side="left", padx=3)
+                     font=ctk.CTkFont(size=10, weight="bold")).grid(
+                         row=0, column=0, columnspan=5, sticky="w", padx=3, pady=(0, 5))
         self.pan_button = ctk.CTkButton(
             controls, text="Pan: off", width=80, height=30,
             fg_color="#26364d", hover_color="#344a66",
             command=self._toggle_pan,
         )
-        self.pan_button.pack(side="left", padx=3)
-        ctk.CTkButton(controls, text="Reset view", width=85, height=30,
-                      fg_color="#26364d", hover_color="#344a66",
-                      command=self._reset_chart_view).pack(side="left", padx=3)
-        ctk.CTkButton(controls, text="Save chart", width=85, height=30,
-                      fg_color="#26364d", hover_color="#344a66",
-                      command=self._save_chart).pack(side="left", padx=3)
+        self.chart_control_buttons = [
+            ctk.CTkButton(controls, text="− Zoom out", height=30,
+                          fg_color="#26364d", hover_color="#344a66",
+                          command=lambda: self._zoom_chart(1.25)),
+            ctk.CTkButton(controls, text="+ Zoom in", height=30,
+                          fg_color="#26364d", hover_color="#344a66",
+                          command=lambda: self._zoom_chart(0.8)),
+            self.pan_button,
+            ctk.CTkButton(controls, text="Reset view", height=30,
+                          fg_color="#26364d", hover_color="#344a66",
+                          command=self._reset_chart_view),
+            ctk.CTkButton(controls, text="Save chart", height=30,
+                          fg_color="#26364d", hover_color="#344a66",
+                          command=self._save_chart),
+        ]
+        self._chart_control_columns = None
+        self._arrange_chart_controls(5)
+        controls.bind("<Configure>", self._on_chart_controls_resize, add="+")
         self.chart_hint = ctk.CTkLabel(
             chart,
             text="Hover over a point for details • Click a point to inspect • Scroll to zoom",
@@ -233,6 +246,45 @@ class App(ctk.CTk):
         ctk.CTkLabel(trace_panel, text="ALGORITHM EXECUTION TRACE  •  DIVIDE / CONQUER / COMBINE", text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=10)
         self.trace = ctk.CTkTextbox(trace_panel, fg_color="#0b1322", border_color=BORDER, border_width=1, font=ctk.CTkFont(family="Consolas", size=10), wrap="none")
         self.trace.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+    def _on_input_buttons_resize(self, event):
+        columns = 5 if event.width >= 760 else (3 if event.width >= 440 else 2)
+        if columns != self._input_button_columns:
+            self._arrange_input_buttons(columns)
+
+    def _arrange_input_buttons(self, columns):
+        self._input_button_columns = columns
+        for column in range(5):
+            self.input_buttons_frame.grid_columnconfigure(
+                column, weight=1 if column < columns else 0,
+                uniform="input_button" if column < columns else "",
+            )
+        for index, button in enumerate(self.input_buttons):
+            button.grid(
+                row=index // columns, column=index % columns,
+                sticky="ew", padx=3, pady=3,
+            )
+
+    def _on_chart_controls_resize(self, event):
+        columns = 5 if event.width >= 850 else 3
+        if columns != self._chart_control_columns:
+            self._arrange_chart_controls(columns)
+
+    def _arrange_chart_controls(self, columns):
+        self._chart_control_columns = columns
+        for column in range(5):
+            self.chart_controls_frame.grid_columnconfigure(
+                column, weight=1 if column < columns else 0,
+                uniform="chart_control" if column < columns else "",
+            )
+        # The label occupies its own row; action buttons wrap on narrower screens.
+        label = self.chart_controls_frame.winfo_children()[0]
+        label.grid_configure(columnspan=columns)
+        for index, button in enumerate(self.chart_control_buttons):
+            button.grid(
+                row=1 + index // columns, column=index % columns,
+                sticky="ew", padx=3, pady=3,
+            )
 
     def _on_metrics_resize(self, event):
         # Reflow metric cards into two columns on narrow windows.
