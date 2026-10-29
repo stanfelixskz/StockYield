@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import MaxNLocator, FuncFormatter
 from algorithm import max_profit
 
 SAMPLE = "100, 113, 110, 85, 105, 102, 86, 63, 81, 101, 94, 106, 101, 79, 94, 90, 97"
@@ -201,31 +202,89 @@ class App(ctk.CTk):
         self.trace.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
 
     def _draw_chart(self):
+        # Recreate transient hover artists whenever the plot is rebuilt.
+        self._hover_annotation = None
+        self._hover_line = None
         self.ax.clear()
         self.ax.set_facecolor(PANEL)
+
         days = list(range(1, len(self.prices) + 1))
-        self.ax.plot(days, self.prices, color=BLUE, linewidth=2, marker="o", markersize=3, label="Closing price")
-        self.ax.grid(True, color=BORDER, linewidth=.6)
-        self.ax.tick_params(colors=MUTED, labelsize=8)
-        self.ax.set_xlabel("Day", color=MUTED); self.ax.set_ylabel("Price", color=MUTED)
-        for s in self.ax.spines.values(): s.set_color(BORDER)
-        if self.result and self.result.buy_day is not None:
-            r = self.result
-            self.ax.axvspan(r.buy_day, r.sell_day, color=GREEN, alpha=.1)
-            self.ax.scatter([r.buy_day], [r.buy_price], color=GREEN, s=65, label="Buy", zorder=4)
-            self.ax.scatter([r.sell_day], [r.sell_price], color=RED, s=65, label="Sell", zorder=4)
-            self.ax.annotate(f"BUY D{r.buy_day}", (r.buy_day, r.buy_price), color=GREEN, xytext=(5, 8), textcoords="offset points", fontsize=8)
-            self.ax.annotate(f"SELL D{r.sell_day}", (r.sell_day, r.sell_price), color=RED, xytext=(5, -14), textcoords="offset points", fontsize=8)
-        if self._selected_point is not None and 1 <= self._selected_point <= len(self.prices):
-            selected_price = self.prices[self._selected_point - 1]
-            self.ax.scatter([self._selected_point], [selected_price], s=120,
-                            facecolors="none", edgecolors="#fbbf24", linewidths=1.8,
-                            label=f"Selected day {self._selected_point}", zorder=5)
-        self.ax.legend(facecolor="#172338", edgecolor=BORDER, labelcolor=TEXT, fontsize=8)
-        self.fig.tight_layout()
+        if not days:
+            self.ax.text(
+                0.5, 0.5, "Enter prices and run analysis",
+                color=MUTED, ha="center", va="center",
+                transform=self.ax.transAxes, fontsize=11,
+            )
+            self.ax.set_xticks([])
+            self.ax.set_yticks([])
+            self._default_xlim = None
+            self._default_ylim = None
+        else:
+            self.ax.plot(
+                days, self.prices, color=BLUE, linewidth=2.2,
+                marker="o", markersize=3.5, markerfacecolor=BLUE,
+                markeredgewidth=0, label="Closing price", zorder=2,
+            )
+            self.ax.set_xlim(max(0.5, days[0] - 0.6), days[-1] + 0.6)
+            self.ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
+            self.ax.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:,.2f}"))
+            self.ax.grid(axis="y", color=BORDER, linewidth=0.7, alpha=0.8)
+            self.ax.grid(axis="x", color=BORDER, linewidth=0.35, alpha=0.35)
+            self.ax.set_axisbelow(True)
+            self.ax.margins(y=0.13)
+            self.ax.set_xlabel("Trading day", color=MUTED, labelpad=8)
+            self.ax.set_ylabel("Closing price", color=MUTED, labelpad=8)
+            self.ax.tick_params(axis="both", colors=MUTED, labelsize=9, length=0, pad=6)
+            for spine in self.ax.spines.values():
+                spine.set_color(BORDER)
+                spine.set_linewidth(0.8)
+
+            if self.result and self.result.buy_day is not None:
+                r = self.result
+                self.ax.axvspan(r.buy_day, r.sell_day, color=GREEN, alpha=0.09, zorder=0)
+                self.ax.scatter(
+                    [r.buy_day], [r.buy_price], color=GREEN, s=78,
+                    edgecolors=PANEL, linewidths=1.4, label="Optimal buy", zorder=5,
+                )
+                self.ax.scatter(
+                    [r.sell_day], [r.sell_price], color=RED, s=78,
+                    edgecolors=PANEL, linewidths=1.4, label="Optimal sell", zorder=5,
+                )
+                buy_offset = (8, 10) if r.buy_day < r.sell_day else (8, -18)
+                sell_offset = (8, -18) if r.sell_price >= r.buy_price else (8, 10)
+                self.ax.annotate(
+                    f"BUY · D{r.buy_day}", (r.buy_day, r.buy_price),
+                    xytext=buy_offset, textcoords="offset points",
+                    color=GREEN, fontsize=8, fontweight="bold", annotation_clip=True,
+                )
+                self.ax.annotate(
+                    f"SELL · D{r.sell_day}", (r.sell_day, r.sell_price),
+                    xytext=sell_offset, textcoords="offset points",
+                    color=RED, fontsize=8, fontweight="bold", annotation_clip=True,
+                )
+
+            if self._selected_point is not None and 1 <= self._selected_point <= len(self.prices):
+                selected_price = self.prices[self._selected_point - 1]
+                self.ax.scatter(
+                    [self._selected_point], [selected_price], s=150,
+                    facecolors="none", edgecolors="#fbbf24", linewidths=2,
+                    label=f"Selected day {self._selected_point}", zorder=6,
+                )
+
+            handles, labels = self.ax.get_legend_handles_labels()
+            if handles:
+                legend = self.ax.legend(
+                    loc="upper left", ncol=min(len(labels), 3),
+                    facecolor="#172338", edgecolor=BORDER,
+                    labelcolor=TEXT, fontsize=8, framealpha=0.95,
+                    borderpad=0.7, handlelength=1.6,
+                )
+                legend.get_frame().set_linewidth(0.7)
+            self._default_xlim = self.ax.get_xlim()
+            self._default_ylim = self.ax.get_ylim()
+
+        self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16)
         self.canvas.draw_idle()
-        self._default_xlim = self.ax.get_xlim()
-        self._default_ylim = self.ax.get_ylim()
 
     def _zoom_chart(self, scale):
         x0, x1 = self.ax.get_xlim()
@@ -346,7 +405,7 @@ class App(ctk.CTk):
     def _on_chart_scroll(self, event):
         if event.inaxes != self.ax or event.xdata is None:
             return
-        # Zoom toward the pointer; use the toolbar's Home button to restore the original view.
+        # Zoom toward the pointer; use Reset view to restore the original view.
         scale = 0.8 if event.button == "up" else 1.25
         x0, x1 = self.ax.get_xlim()
         y0, y1 = self.ax.get_ylim()
@@ -406,8 +465,9 @@ class App(ctk.CTk):
         self.source_label.configure(text=self.source)
         self.status.configure(text="● WAITING FOR INPUT", text_color=MUTED)
         for metric in (self.m_profit, self.m_return, self.m_buy, self.m_sell): metric.set("—", "Awaiting analysis")
+        self._hover_annotation = None; self._hover_line = None
         self.ax.clear(); self.ax.set_facecolor(PANEL); self.ax.text(.5, .5, "Enter prices and run analysis", color=MUTED, ha="center", va="center", transform=self.ax.transAxes)
-        self.ax.set_xticks([]); self.ax.set_yticks([]); self.fig.tight_layout(); self.canvas.draw_idle()
+        self.ax.set_xticks([]); self.ax.set_yticks([]); self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16); self.canvas.draw_idle()
         self.trace.configure(state="normal"); self.trace.delete("1.0", "end"); self.trace.insert("1.0", "Input cleared. Enter at least two positive closing prices."); self.trace.configure(state="disabled")
 
     def export(self):
