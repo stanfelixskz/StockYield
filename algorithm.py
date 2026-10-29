@@ -1,95 +1,85 @@
-"""
-Historical Stock Yield Optimization - Divide-and-Conquer core.
-
-Problem: given daily closing prices, find the buy day and sell day (buy before
-sell) that give the maximum profit (yield).
-
-Approach: convert prices to daily changes, then solve the Maximum Subarray
-Problem on the changes using Divide-and-Conquer:
-    DIVIDE  : split the range at the midpoint
-    CONQUER : solve the left half and the right half recursively
-    COMBINE : find the best subarray that crosses the midpoint, then take the
-              largest of (left, right, crossing)
-
-Recurrence: T(n) = 2T(n/2) + O(n)  ->  O(n log n)
-"""
+"""Divide-and-conquer maximum-subarray solution for StockYield."""
 from dataclasses import dataclass, field
+import math
 
 
 @dataclass
 class Result:
-    buy_day: int | None      # 1-based day number, None if no profitable trade
+    profit: float
+    buy_day: int | None
     sell_day: int | None
     buy_price: float | None
     sell_price: float | None
-    profit: float
     trace: list[str] = field(default_factory=list)
 
 
 def daily_changes(prices):
-    """Day-to-day price differences: changes[i] = prices[i+1] - prices[i]."""
-    return [prices[i + 1] - prices[i] for i in range(len(prices) - 1)]
+    if len(prices) < 2:
+        raise ValueError("At least two prices are required.")
+    values = [float(p) for p in prices]
+    if any(not math.isfinite(p) or p <= 0 for p in values):
+        raise ValueError("Prices must be finite positive numbers.")
+    return [values[i] - values[i - 1] for i in range(1, len(values))]
 
 
-def _max_crossing(a, lo, mid, hi):
-    """COMBINE step: best subarray that must include a[mid] and a[mid+1]."""
-    best_left, total, left_idx = float("-inf"), 0, mid
-    for i in range(mid, lo - 1, -1):          # grow leftwards from the middle
+def _crossing(a, lo, mid, hi, trace):
+    total = 0.0
+    best_left = float("-inf")
+    min_index = mid
+    for i in range(mid, lo - 1, -1):
         total += a[i]
         if total > best_left:
-            best_left, left_idx = total, i
-
-    best_right, total, right_idx = float("-inf"), 0, mid + 1
-    for j in range(mid + 1, hi + 1):          # grow rightwards from the middle
+            best_left, min_index = total, i
+    total = 0.0
+    best_right = float("-inf')
+    max_index = mid + 1
+    for j in range(mid + 1, hi + 1):
         total += a[j]
         if total > best_right:
-            best_right, right_idx = total, j
+            best_right, max_index = total, j
+    trace.append(f"  CROSS [{lo + 1}:{hi + 1}] -> gain {best_left + best_right:.2f}")
+    return best_left + best_right, min_index, max_index
 
-    return left_idx, right_idx, best_left + best_right
 
-
-def _max_subarray(a, lo, hi, trace, depth=0):
-    """Returns (start_index, end_index, sum) of the max subarray in a[lo..hi]."""
-    indent = "  " * depth
-    if lo == hi:                               # BASE CASE: a single element
-        trace.append(f"{indent}[{lo}..{hi}] base case -> sum {a[lo]:+.2f}")
-        return lo, hi, a[lo]
-
-    mid = (lo + hi) // 2                       # DIVIDE
-    trace.append(f"{indent}[{lo}..{hi}] divide at mid={mid}")
-
-    l = _max_subarray(a, lo, mid, trace, depth + 1)        # CONQUER left
-    r = _max_subarray(a, mid + 1, hi, trace, depth + 1)    # CONQUER right
-    c = _max_crossing(a, lo, mid, hi)                      # COMBINE
-
-    best = max((l, "left"), (r, "right"), (c, "crossing"), key=lambda t: t[0][2])
-    trace.append(
-        f"{indent}[{lo}..{hi}] combine: left={l[2]:+.2f}, right={r[2]:+.2f}, "
-        f"crossing={c[2]:+.2f} -> best is {best[1]} ({best[0][2]:+.2f})"
-    )
-    return best[0]
+def _solve(a, lo, hi, trace, depth=0):
+    pad = "  " * depth
+    if lo == hi:
+        trace.append(f"{pad}BASE change day {lo + 1}: {a[lo]:+.2f}")
+        return a[lo], lo, hi
+    mid = (lo + hi) // 2
+    trace.append(f"{pad}DIVIDE changes [{lo + 1}:{hi + 1}] at {mid + 1}")
+    left = _solve(a, lo, mid, trace, depth + 1)
+    right = _solve(a, mid + 1, hi, trace, depth + 1)
+    cross = _crossing(a, lo, mid, hi, trace)
+    best = max((left, right, cross), key=lambda x: x[0])
+    trace.append(f"{pad}COMBINE [{lo + 1}:{hi + 1}] -> {best[0]:.2f}")
+    return best
 
 
 def max_profit(prices):
-    """Find the best buy/sell days using divide-and-conquer."""
-    if len(prices) < 2:
-        raise ValueError("Need at least 2 prices.")
-    changes = daily_changes(prices)
-    trace: list[str] = []
-    start, end, total = _max_subarray(changes, 0, len(changes) - 1, trace)
-
-    if total <= 0:                             # prices only fall: don't trade
-        return Result(None, None, None, None, 0.0, trace)
-
-    buy_idx, sell_idx = start, end + 1         # change i spans price i -> i+1
-    return Result(buy_idx + 1, sell_idx + 1, prices[buy_idx], prices[sell_idx],
-                  total, trace)
+    values = [float(p) for p in prices]
+    changes = daily_changes(values)
+    trace = [f"Input: {len(values)} closing prices / {len(changes)} daily changes", "Recursively find the maximum subarray of daily price changes."]
+    gain, left, right = _solve(changes, 0, len(changes) - 1, trace)
+    if gain <= 0:
+        trace.append("RESULT: no profitable buy-before-sell trade.")
+        return Result(0.0, None, None, None, None, trace)
+    buy_day, sell_day = left + 1, right + 2
+    profit = values[sell_day - 1] - values[buy_day - 1]
+    trace.append(f"RESULT: buy Day {buy_day} at {values[buy_day - 1]:.2f}; sell Day {sell_day} at {values[sell_day - 1]:.2f}; profit {profit:.2f}")
+    trace.append("Time complexity: O(n log n); auxiliary recursion space: O(log n).")
+    return Result(profit, buy_day, sell_day, values[buy_day - 1], values[sell_day - 1], trace)
 
 
 def brute_force(prices):
-    """O(n^2) checker used only for testing."""
+    values = [float(p) for p in prices]
+    if len(values) < 2:
+        raise ValueError("At least two prices are required.")
     best = 0.0
-    for i in range(len(prices)):
-        for j in range(i + 1, len(prices)):
-            best = max(best, prices[j] - prices[i])
-    return best
+    best_pair = (None, None)
+    for i in range(len(values) - 1):
+        for j in range(i + 1, len(values)):
+            gain = values[j] - values[i]
+            if gain > best:
+                best, best_pair = gain, (i + 1, j + 1)
+    return best, best_pair
