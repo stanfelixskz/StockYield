@@ -31,7 +31,7 @@ def _crossing(a, lo, mid, hi, trace):
         if total > best_left:
             best_left, min_index = total, i
     total = 0.0
-    best_right = float("-inf')
+    best_right = float('-inf')
     max_index = mid + 1
     for j in range(mid + 1, hi + 1):
         total += a[j]
