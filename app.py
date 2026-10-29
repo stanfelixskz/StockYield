@@ -289,13 +289,36 @@ class App(ctk.CTk):
         self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16)
         self.canvas.draw_idle()
 
-    def _zoom_chart(self, scale):
+    def _apply_zoom(self, scale, center_x=None, center_y=None):
+        """Zoom around a data point while keeping the view within sensible limits."""
+        if self._default_xlim is None or self._default_ylim is None:
+            return
+
         x0, x1 = self.ax.get_xlim()
         y0, y1 = self.ax.get_ylim()
-        xc, yc = (x0 + x1) / 2, (y0 + y1) / 2
-        self.ax.set_xlim(xc - (xc - x0) * scale, xc + (x1 - xc) * scale)
-        self.ax.set_ylim(yc - (yc - y0) * scale, yc + (y1 - yc) * scale)
+        if center_x is None:
+            center_x = (x0 + x1) / 2
+        if center_y is None:
+            center_y = (y0 + y1) / 2
+
+        base_x_span = max(self._default_xlim[1] - self._default_xlim[0], 1e-9)
+        base_y_span = max(self._default_ylim[1] - self._default_ylim[0], 1e-9)
+        min_x_span, max_x_span = base_x_span * 0.03, base_x_span * 3.0
+        min_y_span, max_y_span = base_y_span * 0.03, base_y_span * 3.0
+
+        new_x_span = min(max((x1 - x0) * scale, min_x_span), max_x_span)
+        new_y_span = min(max((y1 - y0) * scale, min_y_span), max_y_span)
+        x_fraction = 0.5 if x1 == x0 else (center_x - x0) / (x1 - x0)
+        y_fraction = 0.5 if y1 == y0 else (center_y - y0) / (y1 - y0)
+
+        self.ax.set_xlim(center_x - new_x_span * x_fraction,
+                         center_x + new_x_span * (1 - x_fraction))
+        self.ax.set_ylim(center_y - new_y_span * y_fraction,
+                         center_y + new_y_span * (1 - y_fraction))
         self.canvas.draw_idle()
+
+    def _zoom_chart(self, scale):
+        self._apply_zoom(scale)
 
     def _reset_chart_view(self):
         if self._default_xlim is not None and self._default_ylim is not None:
@@ -319,17 +342,27 @@ class App(ctk.CTk):
         )
 
     def _on_pan_press(self, event):
-        if not self.pan_enabled or event.inaxes != self.ax or event.xdata is None or event.ydata is None:
+        if (not self.pan_enabled or event.button != 1 or event.inaxes != self.ax
+                or event.x is None or event.y is None):
             return
-        self._pan_start = (event.xdata, event.ydata, self.ax.get_xlim(), self.ax.get_ylim())
+        # Store screen pixels, not data coordinates. Data coordinates change as
+        # the axes move, which made the old drag implementation feel jumpy.
+        self._pan_start = (event.x, event.y, self.ax.get_xlim(), self.ax.get_ylim())
+        if self._hover_annotation is not None:
+            self._hover_annotation.set_visible(False)
+        if self._hover_line is not None:
+            self._hover_line.set_visible(False)
 
     def _on_pan_motion(self, event):
-        if not self.pan_enabled or self._pan_start is None or event.inaxes != self.ax:
+        if not self.pan_enabled or self._pan_start is None:
             return
-        if event.xdata is None or event.ydata is None:
+        if event.x is None or event.y is None:
             return
         start_x, start_y, xlim, ylim = self._pan_start
-        dx, dy = event.xdata - start_x, event.ydata - start_y
+        width = max(float(self.ax.bbox.width), 1.0)
+        height = max(float(self.ax.bbox.height), 1.0)
+        dx = (event.x - start_x) * (xlim[1] - xlim[0]) / width
+        dy = (event.y - start_y) * (ylim[1] - ylim[0]) / height
         self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
         self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
         self.canvas.draw_idle()
@@ -353,18 +386,21 @@ class App(ctk.CTk):
         messagebox.showinfo("Chart saved", f"Chart saved to:\n{path}", parent=self)
 
     def _nearest_day(self, event):
-        if event.inaxes != self.ax or event.xdata is None or not self.prices:
+        """Return a day only when the pointer is close to its actual plotted point."""
+        if (event.inaxes != self.ax or event.x is None or event.y is None
+                or event.xdata is None or not self.prices):
             return None
         day = int(round(event.xdata))
         if day < 1 or day > len(self.prices):
             return None
-        # Only inspect a point when the pointer is reasonably close to its plotted price.
-        y_span = max(self.ax.get_ylim()[1] - self.ax.get_ylim()[0], 1e-9)
-        if event.ydata is not None and abs(event.ydata - self.prices[day - 1]) > y_span * 0.12:
-            return None
-        return day
+        point_x, point_y = self.ax.transData.transform((day, self.prices[day - 1]))
+        # Pixel-based tolerance behaves consistently at different zoom levels.
+        distance = math.hypot(event.x - point_x, event.y - point_y)
+        return day if distance <= 14 else None
 
     def _on_chart_hover(self, event):
+        if self.pan_enabled:
+            return
         day = self._nearest_day(event)
         if day is None:
             if self._hover_annotation is not None and self._hover_annotation.get_visible():
@@ -390,7 +426,7 @@ class App(ctk.CTk):
         self.canvas.draw_idle()
 
     def _on_chart_click(self, event):
-        if self.pan_enabled:
+        if self.pan_enabled or event.button != 1:
             return
         day = self._nearest_day(event)
         if day is None:
@@ -401,23 +437,22 @@ class App(ctk.CTk):
             role = " • OPTIMAL BUY"
         elif self.result and self.result.sell_day == day:
             role = " • OPTIMAL SELL"
+        # Selecting a point should not unexpectedly reset the user's zoom.
+        current_xlim, current_ylim = self.ax.get_xlim(), self.ax.get_ylim()
         self.chart_hint.configure(text=f"Selected Day {day} • Closing price: {price:,.2f}{role}")
         self._selected_point = day
         self._draw_chart()
+        self.ax.set_xlim(current_xlim)
+        self.ax.set_ylim(current_ylim)
+        self.canvas.draw_idle()
 
     def _on_chart_scroll(self, event):
-        if event.inaxes != self.ax or event.xdata is None:
+        if self.pan_enabled or event.inaxes != self.ax or event.xdata is None:
             return
-        # Zoom toward the pointer; use Reset view to restore the original view.
+        # Keep wheel zoom centered on the pointer and clamp extreme zoom levels.
         scale = 0.8 if event.button == "up" else 1.25
-        x0, x1 = self.ax.get_xlim()
-        y0, y1 = self.ax.get_ylim()
-        self.ax.set_xlim(event.xdata - (event.xdata - x0) * scale,
-                         event.xdata + (x1 - event.xdata) * scale)
-        if event.ydata is not None:
-            self.ax.set_ylim(event.ydata - (event.ydata - y0) * scale,
-                             event.ydata + (y1 - event.ydata) * scale)
-        self.canvas.draw_idle()
+        center_y = event.ydata if event.ydata is not None else (sum(self.ax.get_ylim()) / 2)
+        self._apply_zoom(scale, event.xdata, center_y)
 
     def analyze(self):
         try:
