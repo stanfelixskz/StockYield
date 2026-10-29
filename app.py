@@ -150,11 +150,26 @@ class App(ctk.CTk):
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart)
         self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 2))
         # Interactive chart controls: pan, zoom, reset, hover inspection and click-to-select.
-        toolbar_frame = ctk.CTkFrame(chart, fg_color="transparent")
+        toolbar_frame = ctk.CTkFrame(chart, fg_color=PANEL, corner_radius=0)
         toolbar_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 2))
         self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame, pack_toolbar=False)
+        self.toolbar.configure(background=PANEL, borderwidth=0, highlightthickness=0)
         self.toolbar.update()
         self.toolbar.pack(side="left", fill="x")
+        # Matplotlib's default Tk toolbar uses a light background; match it to the dark dashboard.
+        for widget in self.toolbar.winfo_children():
+            try:
+                widget.configure(
+                    background=PANEL,
+                    activebackground=BORDER,
+                    foreground=TEXT,
+                    activeforeground=TEXT,
+                    relief="flat",
+                    borderwidth=0,
+                    highlightthickness=0,
+                )
+            except tk.TclError:
+                pass
         self.chart_hint = ctk.CTkLabel(
             chart,
             text="Hover over a point for details • Click a point to inspect • Scroll to zoom",
