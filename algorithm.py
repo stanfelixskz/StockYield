@@ -28,7 +28,8 @@ def _crossing(a, lo, mid, hi, trace):
     min_index = mid
     for i in range(mid, lo - 1, -1):
         total += a[i]
-        if total > best_left:
+        # On equal sums, keep moving left to prefer the earliest buy day.
+        if total >= best_left:
             best_left, min_index = total, i
     total = 0.0
     best_right = float('-inf')
@@ -51,7 +52,8 @@ def _solve(a, lo, hi, trace, depth=0):
     left = _solve(a, lo, mid, trace, depth + 1)
     right = _solve(a, mid + 1, hi, trace, depth + 1)
     cross = _crossing(a, lo, mid, hi, trace)
-    best = max((left, right, cross), key=lambda x: x[0])
+    # Tie-break equal profits by earliest start, then earliest finish.
+    best = max((left, right, cross), key=lambda x: (x[0], -x[1], -x[2]))
     trace.append(f"{pad}COMBINE [{lo + 1}:{hi + 1}] -> {best[0]:.2f}")
     return best
 
