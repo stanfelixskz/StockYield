@@ -79,8 +79,13 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("StockYield | Historical Analysis")
-        self.geometry("1360x860")
-        self.minsize(1050, 700)
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        initial_width = min(1360, max(760, int(screen_width * 0.94)))
+        initial_height = min(860, max(560, int(screen_height * 0.88)))
+        self.geometry(f"{initial_width}x{initial_height}")
+        # Permit smaller laptop displays while keeping the window usable.
+        self.minsize(760, 560)
         self.configure(fg_color=BG)
         self.prices, self.result, self.source = [], None, "Sample dataset"
         self.grid_columnconfigure(1, weight=1)
@@ -91,7 +96,8 @@ class App(ctk.CTk):
         self.analyze()
 
     def _sidebar(self):
-        side = ctk.CTkFrame(self, width=210, corner_radius=0, fg_color="#0e1728")
+        side_width = 190 if self.winfo_screenwidth() < 1280 else 210
+        side = ctk.CTkFrame(self, width=side_width, corner_radius=0, fg_color="#0e1728")
         side.grid(row=0, column=0, sticky="nsew")
         side.grid_propagate(False)
         ctk.CTkLabel(side, text="↗  StockYield", text_color=GREEN, font=ctk.CTkFont(size=22, weight="bold")).pack(anchor="w", padx=20, pady=(28, 35))
@@ -104,8 +110,15 @@ class App(ctk.CTk):
         ctk.CTkLabel(side, text="DAA PROJECT • PYTHON", text_color="#647993", font=ctk.CTkFont(size=9, weight="bold")).pack(side="bottom", anchor="w", padx=20, pady=20)
 
     def _main(self):
-        self.main = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
-        self.main.grid(row=0, column=1, sticky="nsew", padx=25, pady=22)
+        # The whole overview scrolls vertically, so lower panels remain reachable
+        # on short laptop screens and when Windows display scaling is increased.
+        self.main = ctk.CTkScrollableFrame(
+            self, fg_color=BG, corner_radius=0,
+            scrollbar_fg_color=PANEL,
+            scrollbar_button_color=BORDER,
+            scrollbar_button_hover_color=BLUE,
+        )
+        self.main.grid(row=0, column=1, sticky="nsew", padx=12, pady=10)
         self.main.grid_columnconfigure(0, weight=1)
         # Give the price chart most of the available vertical space.
         self.main.grid_rowconfigure(3, weight=6, minsize=260)
@@ -119,13 +132,15 @@ class App(ctk.CTk):
         self.status.grid(row=0, column=1, rowspan=2, sticky="e")
         metrics = ctk.CTkFrame(self.main, fg_color="transparent")
         metrics.grid(row=1, column=0, sticky="ew", pady=(0, 16))
-        for i in range(4): metrics.grid_columnconfigure(i, weight=1, uniform="metric")
+        self.metrics = metrics
+        self._metrics_columns = None
         self.m_profit = Metric(metrics, "Maximum profit", GREEN)
         self.m_return = Metric(metrics, "Return", GREEN)
         self.m_buy = Metric(metrics, "Optimal buy", BLUE)
         self.m_sell = Metric(metrics, "Optimal sell", RED)
-        for i, m in enumerate((self.m_profit, self.m_return, self.m_buy, self.m_sell)):
-            m.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 7, 0 if i == 3 else 7))
+        self.metric_cards = (self.m_profit, self.m_return, self.m_buy, self.m_sell)
+        self._arrange_metrics(4)
+        self.metrics.bind("<Configure>", self._on_metrics_resize, add="+")
         inp = ctk.CTkFrame(self.main, fg_color=PANEL, corner_radius=14, border_width=1, border_color=BORDER)
         inp.grid(row=2, column=0, sticky="ew", pady=(0, 16))
         inp.grid_columnconfigure(0, weight=1)
@@ -218,6 +233,28 @@ class App(ctk.CTk):
         ctk.CTkLabel(trace_panel, text="ALGORITHM EXECUTION TRACE  •  DIVIDE / CONQUER / COMBINE", text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=10)
         self.trace = ctk.CTkTextbox(trace_panel, fg_color="#0b1322", border_color=BORDER, border_width=1, font=ctk.CTkFont(family="Consolas", size=10), wrap="none")
         self.trace.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+    def _on_metrics_resize(self, event):
+        # Reflow metric cards into two columns on narrow windows.
+        columns = 2 if event.width < 900 else 4
+        if columns != self._metrics_columns:
+            self._arrange_metrics(columns)
+
+    def _arrange_metrics(self, columns):
+        self._metrics_columns = columns
+        for column in range(4):
+            self.metrics.grid_columnconfigure(
+                column, weight=1 if column < columns else 0,
+                uniform="metric" if column < columns else "",
+            )
+        for index, metric in enumerate(self.metric_cards):
+            column = index % columns
+            row = index // columns
+            metric.grid(
+                row=row, column=column, sticky="ew",
+                padx=(0 if column == 0 else 7, 0 if column == columns - 1 else 7),
+                pady=(0, 7 if columns == 2 and row == 0 else 0),
+            )
 
     def _draw_chart(self):
         # Recreate transient hover artists whenever the plot is rebuilt.
