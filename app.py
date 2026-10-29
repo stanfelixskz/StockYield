@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from algorithm import max_profit
 
@@ -148,7 +148,26 @@ class App(ctk.CTk):
         self.fig = Figure(figsize=(8, 3.2), dpi=100, facecolor=PANEL)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart)
-        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 2))
+        # Interactive chart controls: pan, zoom, reset, hover inspection and click-to-select.
+        toolbar_frame = ctk.CTkFrame(chart, fg_color="transparent")
+        toolbar_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 2))
+        self.toolbar = NavigationToolbar2Tk(self.canvas, toolbar_frame, pack_toolbar=False)
+        self.toolbar.update()
+        self.toolbar.pack(side="left", fill="x")
+        self.chart_hint = ctk.CTkLabel(
+            chart,
+            text="Hover over a point for details • Click a point to inspect • Scroll to zoom",
+            text_color=MUTED,
+            font=ctk.CTkFont(size=10),
+        )
+        self.chart_hint.grid(row=3, column=0, sticky="w", padx=15, pady=(0, 10))
+        self._hover_annotation = None
+        self._hover_line = None
+        self._selected_point = None
+        self.canvas.mpl_connect("motion_notify_event", self._on_chart_hover)
+        self.canvas.mpl_connect("button_press_event", self._on_chart_click)
+        self.canvas.mpl_connect("scroll_event", self._on_chart_scroll)
         trace_panel = ctk.CTkFrame(self.main, fg_color=PANEL, corner_radius=14, border_width=1, border_color=BORDER)
         trace_panel.grid(row=4, column=0, sticky="nsew")
         trace_panel.grid_columnconfigure(0, weight=1); trace_panel.grid_rowconfigure(1, weight=1)
@@ -172,8 +191,78 @@ class App(ctk.CTk):
             self.ax.scatter([r.sell_day], [r.sell_price], color=RED, s=65, label="Sell", zorder=4)
             self.ax.annotate(f"BUY D{r.buy_day}", (r.buy_day, r.buy_price), color=GREEN, xytext=(5, 8), textcoords="offset points", fontsize=8)
             self.ax.annotate(f"SELL D{r.sell_day}", (r.sell_day, r.sell_price), color=RED, xytext=(5, -14), textcoords="offset points", fontsize=8)
+        if self._selected_point is not None and 1 <= self._selected_point <= len(self.prices):
+            selected_price = self.prices[self._selected_point - 1]
+            self.ax.scatter([self._selected_point], [selected_price], s=120,
+                            facecolors="none", edgecolors="#fbbf24", linewidths=1.8,
+                            label=f"Selected day {self._selected_point}", zorder=5)
         self.ax.legend(facecolor="#172338", edgecolor=BORDER, labelcolor=TEXT, fontsize=8)
         self.fig.tight_layout()
+        self.canvas.draw_idle()
+
+    def _nearest_day(self, event):
+        if event.inaxes != self.ax or event.xdata is None or not self.prices:
+            return None
+        day = int(round(event.xdata))
+        if day < 1 or day > len(self.prices):
+            return None
+        # Only inspect a point when the pointer is reasonably close to its plotted price.
+        y_span = max(self.ax.get_ylim()[1] - self.ax.get_ylim()[0], 1e-9)
+        if event.ydata is not None and abs(event.ydata - self.prices[day - 1]) > y_span * 0.12:
+            return None
+        return day
+
+    def _on_chart_hover(self, event):
+        day = self._nearest_day(event)
+        if day is None:
+            if self._hover_annotation is not None and self._hover_annotation.get_visible():
+                self._hover_annotation.set_visible(False)
+                if self._hover_line is not None:
+                    self._hover_line.set_visible(False)
+                self.canvas.draw_idle()
+            return
+        price = self.prices[day - 1]
+        if self._hover_annotation is None:
+            self._hover_annotation = self.ax.annotate(
+                "", xy=(day, price), xytext=(12, 12), textcoords="offset points",
+                color=TEXT, fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.45", fc="#172338", ec=BORDER, alpha=0.97),
+                arrowprops=dict(arrowstyle="->", color=BLUE),
+            )
+            self._hover_line = self.ax.axvline(day, color=MUTED, linewidth=0.8, linestyle="--", alpha=0.7)
+        self._hover_annotation.xy = (day, price)
+        self._hover_annotation.set_text(f"Day {day}\\nPrice: {price:,.2f}")
+        self._hover_annotation.set_visible(True)
+        self._hover_line.set_xdata([day, day])
+        self._hover_line.set_visible(True)
+        self.canvas.draw_idle()
+
+    def _on_chart_click(self, event):
+        day = self._nearest_day(event)
+        if day is None:
+            return
+        price = self.prices[day - 1]
+        role = ""
+        if self.result and self.result.buy_day == day:
+            role = " • OPTIMAL BUY"
+        elif self.result and self.result.sell_day == day:
+            role = " • OPTIMAL SELL"
+        self.chart_hint.configure(text=f"Selected Day {day} • Closing price: {price:,.2f}{role}")
+        self._selected_point = day
+        self._draw_chart()
+
+    def _on_chart_scroll(self, event):
+        if event.inaxes != self.ax or event.xdata is None:
+            return
+        # Zoom toward the pointer; use the toolbar's Home button to restore the original view.
+        scale = 0.8 if event.button == "up" else 1.25
+        x0, x1 = self.ax.get_xlim()
+        y0, y1 = self.ax.get_ylim()
+        self.ax.set_xlim(event.xdata - (event.xdata - x0) * scale,
+                         event.xdata + (x1 - event.xdata) * scale)
+        if event.ydata is not None:
+            self.ax.set_ylim(event.ydata - (event.ydata - y0) * scale,
+                             event.ydata + (y1 - event.ydata) * scale)
         self.canvas.draw_idle()
 
     def analyze(self):
@@ -183,7 +272,7 @@ class App(ctk.CTk):
         except (ValueError, OverflowError) as exc:
             messagebox.showerror("Cannot analyze prices", str(exc), parent=self)
             return
-        self.prices, self.result = prices, result
+        self.prices, self.result = prices, result\n        self._selected_point = None\n        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
         self.status.configure(text="● ANALYSIS COMPLETE", text_color=GREEN)
         self.source_label.configure(text=f"{self.source} • {len(prices)} prices")
         if result.buy_day is None:
@@ -217,7 +306,7 @@ class App(ctk.CTk):
 
     def clear(self):
         self.price_input.delete("1.0", "end")
-        self.prices, self.result, self.source = [], None, "No dataset"
+        self.prices, self.result, self.source = [], None, "No dataset"\n        self._selected_point = None\n        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
         self.source_label.configure(text=self.source)
         self.status.configure(text="● WAITING FOR INPUT", text_color=MUTED)
         for metric in (self.m_profit, self.m_return, self.m_buy, self.m_sell): metric.set("—", "Awaiting analysis")
