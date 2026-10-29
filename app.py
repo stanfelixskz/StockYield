@@ -272,7 +272,9 @@ class App(ctk.CTk):
         except (ValueError, OverflowError) as exc:
             messagebox.showerror("Cannot analyze prices", str(exc), parent=self)
             return
-        self.prices, self.result = prices, result\n        self._selected_point = None\n        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
+        self.prices, self.result = prices, result
+        self._selected_point = None
+        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
         self.status.configure(text="● ANALYSIS COMPLETE", text_color=GREEN)
         self.source_label.configure(text=f"{self.source} • {len(prices)} prices")
         if result.buy_day is None:
@@ -306,7 +308,9 @@ class App(ctk.CTk):
 
     def clear(self):
         self.price_input.delete("1.0", "end")
-        self.prices, self.result, self.source = [], None, "No dataset"\n        self._selected_point = None\n        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
+        self.prices, self.result, self.source = [], None, "No dataset"
+        self._selected_point = None
+        self.chart_hint.configure(text="Hover over a point for details • Click a point to inspect • Scroll to zoom")
         self.source_label.configure(text=self.source)
         self.status.configure(text="● WAITING FOR INPUT", text_color=MUTED)
         for metric in (self.m_profit, self.m_return, self.m_buy, self.m_sell): metric.set("—", "Awaiting analysis")
