@@ -147,16 +147,31 @@ class App(ctk.CTk):
         chart.grid(row=3, column=0, sticky="nsew", pady=(0, 15))
         chart.grid_columnconfigure(0, weight=1)
         chart.grid_rowconfigure(1, weight=1, minsize=220)
-        ctk.CTkLabel(chart, text="PRICE MOVEMENT", text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, sticky="w", padx=15, pady=12)
+        ctk.CTkLabel(chart, text="PRICE MOVEMENT", text_color=TEXT, font=ctk.CTkFont(size=12, weight="bold")).grid(row=0, column=0, columnspan=2, sticky="w", padx=15, pady=12)
         # Keep the requested canvas height modest so the chart remains visible
         # inside the dashboard instead of pushing the panel below the window.
         self.fig = Figure(figsize=(8, 3.4), dpi=100, facecolor=PANEL)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=chart)
-        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 2))
+        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=(8, 0), pady=(0, 2))
+
+        # Scrollbars let users move through the chart after zooming in.
+        self.chart_x_scroll = tk.Scrollbar(
+            chart, orient="horizontal", command=self._scroll_chart_x,
+            troughcolor="#172338", bg="#26364d", activebackground="#60a5fa",
+            highlightthickness=0, bd=0,
+        )
+        self.chart_x_scroll.grid(row=2, column=0, sticky="ew", padx=(12, 4), pady=(0, 2))
+        self.chart_y_scroll = tk.Scrollbar(
+            chart, orient="vertical", command=self._scroll_chart_y,
+            troughcolor="#172338", bg="#26364d", activebackground="#60a5fa",
+            highlightthickness=0, bd=0,
+        )
+        self.chart_y_scroll.grid(row=1, column=1, sticky="ns", padx=(2, 8), pady=(0, 2))
+
         # Custom dashboard controls replace Matplotlib's default toolbar.
         controls = ctk.CTkFrame(chart, fg_color="transparent")
-        controls.grid(row=2, column=0, sticky="ew", padx=12, pady=(3, 6))
+        controls.grid(row=3, column=0, columnspan=2, sticky="ew", padx=12, pady=(3, 6))
         self.pan_enabled = False
         self._pan_start = None
         self._default_xlim = None
@@ -187,7 +202,7 @@ class App(ctk.CTk):
             text_color=MUTED,
             font=ctk.CTkFont(size=10),
         )
-        self.chart_hint.grid(row=3, column=0, sticky="w", padx=15, pady=(0, 10))
+        self.chart_hint.grid(row=4, column=0, columnspan=2, sticky="w", padx=15, pady=(0, 10))
         self._hover_annotation = None
         self._hover_line = None
         self._selected_point = None
@@ -288,6 +303,67 @@ class App(ctk.CTk):
 
         self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16)
         self.canvas.draw_idle()
+        self._sync_chart_scrollbars()
+
+    def _sync_chart_scrollbars(self):
+        """Keep scrollbar thumbs aligned with the current chart view."""
+        if self._default_xlim is None or self._default_ylim is None:
+            self.chart_x_scroll.set(0.0, 1.0)
+            self.chart_y_scroll.set(0.0, 1.0)
+            return
+
+        def fractions(current, default):
+            base_span = max(default[1] - default[0], 1e-9)
+            view_span = max(current[1] - current[0], 1e-9)
+            start = (current[0] - default[0]) / base_span
+            end = start + view_span / base_span
+            # Tk scrollbars accept fractions from 0 to 1.
+            return max(0.0, min(1.0, start)), max(0.0, min(1.0, end))
+
+        self.chart_x_scroll.set(*fractions(self.ax.get_xlim(), self._default_xlim))
+        self.chart_y_scroll.set(*fractions(self.ax.get_ylim(), self._default_ylim))
+
+    def _scroll_chart_x(self, *args):
+        if self._default_xlim is None:
+            return
+        base0, base1 = self._default_xlim
+        base_span = base1 - base0
+        current0, current1 = self.ax.get_xlim()
+        span = min(current1 - current0, base_span * 3.0)
+        if args[0] == "moveto":
+            start = base0 + float(args[1]) * base_span
+        elif args[0] == "scroll":
+            units = int(args[1])
+            mode = args[2] if len(args) > 2 else "units"
+            step = span * (0.1 if mode == "pages" else 0.08)
+            start = current0 + units * step
+        else:
+            return
+        start = min(max(start, base0 - span + 0.05 * base_span), base1 - 0.05 * base_span)
+        self.ax.set_xlim(start, start + span)
+        self.canvas.draw_idle()
+        self._sync_chart_scrollbars()
+
+    def _scroll_chart_y(self, *args):
+        if self._default_ylim is None:
+            return
+        base0, base1 = self._default_ylim
+        base_span = base1 - base0
+        current0, current1 = self.ax.get_ylim()
+        span = min(current1 - current0, base_span * 3.0)
+        if args[0] == "moveto":
+            start = base0 + float(args[1]) * base_span
+        elif args[0] == "scroll":
+            units = int(args[1])
+            mode = args[2] if len(args) > 2 else "units"
+            step = span * (0.1 if mode == "pages" else 0.08)
+            start = current0 + units * step
+        else:
+            return
+        start = min(max(start, base0 - span + 0.05 * base_span), base1 - 0.05 * base_span)
+        self.ax.set_ylim(start, start + span)
+        self.canvas.draw_idle()
+        self._sync_chart_scrollbars()
 
     def _apply_zoom(self, scale, center_x=None, center_y=None):
         """Zoom around a data point while keeping the view within sensible limits."""
@@ -316,6 +392,7 @@ class App(ctk.CTk):
         self.ax.set_ylim(center_y - new_y_span * y_fraction,
                          center_y + new_y_span * (1 - y_fraction))
         self.canvas.draw_idle()
+        self._sync_chart_scrollbars()
 
     def _zoom_chart(self, scale):
         self._apply_zoom(scale)
@@ -325,6 +402,7 @@ class App(ctk.CTk):
             self.ax.set_xlim(self._default_xlim)
             self.ax.set_ylim(self._default_ylim)
             self.canvas.draw_idle()
+            self._sync_chart_scrollbars()
         self.chart_hint.configure(text="Chart view reset • Hover for details • Click a point to inspect")
 
     def _toggle_pan(self):
@@ -366,6 +444,7 @@ class App(ctk.CTk):
         self.ax.set_xlim(xlim[0] - dx, xlim[1] - dx)
         self.ax.set_ylim(ylim[0] - dy, ylim[1] - dy)
         self.canvas.draw_idle()
+        self._sync_chart_scrollbars()
 
     def _on_pan_release(self, event):
         self._pan_start = None
@@ -506,7 +585,7 @@ class App(ctk.CTk):
         self._hover_annotation = None; self._hover_line = None
         self._default_xlim = None; self._default_ylim = None
         self.ax.clear(); self.ax.set_facecolor(PANEL); self.ax.text(.5, .5, "Enter prices and run analysis", color=MUTED, ha="center", va="center", transform=self.ax.transAxes)
-        self.ax.set_xticks([]); self.ax.set_yticks([]); self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16); self.canvas.draw_idle()
+        self.ax.set_xticks([]); self.ax.set_yticks([]); self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16); self.canvas.draw_idle(); self._sync_chart_scrollbars()
         self.trace.configure(state="normal"); self.trace.delete("1.0", "end"); self.trace.insert("1.0", "Input cleared. Enter at least two positive closing prices."); self.trace.configure(state="disabled")
 
     def export(self):
