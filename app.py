@@ -466,6 +466,7 @@ class App(ctk.CTk):
         self.status.configure(text="● WAITING FOR INPUT", text_color=MUTED)
         for metric in (self.m_profit, self.m_return, self.m_buy, self.m_sell): metric.set("—", "Awaiting analysis")
         self._hover_annotation = None; self._hover_line = None
+        self._default_xlim = None; self._default_ylim = None
         self.ax.clear(); self.ax.set_facecolor(PANEL); self.ax.text(.5, .5, "Enter prices and run analysis", color=MUTED, ha="center", va="center", transform=self.ax.transAxes)
         self.ax.set_xticks([]); self.ax.set_yticks([]); self.fig.subplots_adjust(left=0.105, right=0.985, top=0.96, bottom=0.16); self.canvas.draw_idle()
         self.trace.configure(state="normal"); self.trace.delete("1.0", "end"); self.trace.insert("1.0", "Input cleared. Enter at least two positive closing prices."); self.trace.configure(state="disabled")
