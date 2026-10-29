@@ -331,7 +331,8 @@ class App(ctk.CTk):
         current0, current1 = self.ax.get_xlim()
         span = min(current1 - current0, base_span * 3.0)
         if args[0] == "moveto":
-            start = base0 + float(args[1]) * base_span
+            fraction = float(args[1])
+            start = base0 + fraction * max(base_span - span, 0.0)
         elif args[0] == "scroll":
             units = int(args[1])
             mode = args[2] if len(args) > 2 else "units"
@@ -339,7 +340,11 @@ class App(ctk.CTk):
             start = current0 + units * step
         else:
             return
-        start = min(max(start, base0 - span + 0.05 * base_span), base1 - 0.05 * base_span)
+        if span <= base_span:
+            start = min(max(start, base0), base1 - span)
+        else:
+            start = min(max(start, base0 - (span - base_span) / 2),
+                        base1 - (span - base_span) / 2)
         self.ax.set_xlim(start, start + span)
         self.canvas.draw_idle()
         self._sync_chart_scrollbars()
@@ -352,7 +357,8 @@ class App(ctk.CTk):
         current0, current1 = self.ax.get_ylim()
         span = min(current1 - current0, base_span * 3.0)
         if args[0] == "moveto":
-            start = base0 + float(args[1]) * base_span
+            fraction = float(args[1])
+            start = base0 + fraction * max(base_span - span, 0.0)
         elif args[0] == "scroll":
             units = int(args[1])
             mode = args[2] if len(args) > 2 else "units"
@@ -360,7 +366,11 @@ class App(ctk.CTk):
             start = current0 + units * step
         else:
             return
-        start = min(max(start, base0 - span + 0.05 * base_span), base1 - 0.05 * base_span)
+        if span <= base_span:
+            start = min(max(start, base0), base1 - span)
+        else:
+            start = min(max(start, base0 - (span - base_span) / 2),
+                        base1 - (span - base_span) / 2)
         self.ax.set_ylim(start, start + span)
         self.canvas.draw_idle()
         self._sync_chart_scrollbars()
